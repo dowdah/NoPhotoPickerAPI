@@ -21,10 +21,12 @@ the module falls back to the standard `OPEN_DOCUMENT` file picker.
 
 ## What is intercepted
 
-- External `ACTION_PICK_IMAGES` requests and the Jetpack visual-media compatibility action.
+- External `ACTION_PICK_IMAGES` requests, the Jetpack visual-media compatibility action, and
+  visual-only `ACTION_GET_CONTENT` requests (including Chrome web image uploads).
 - Image, video, mixed MIME, and multi-select requests are preserved when routed.
-- `GET_CONTENT`, permission prompts, app-owned gallery UIs, and Android 16 embedded
-  Photo Picker sessions are deliberately not intercepted.
+- Generic `GET_CONTENT` requests without an explicit visual MIME list (including bare `*/*`),
+  non-visual files such as PDFs, permission prompts, app-owned gallery UIs, and Android 16
+  embedded Photo Picker sessions are deliberately not intercepted.
 
 ## Usage
 

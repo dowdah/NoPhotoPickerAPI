@@ -75,9 +75,55 @@ class PickerIntentTransformerTest {
         val original = Intent(MediaStore.ACTION_PICK_IMAGES)
         val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
 
-        assertTrue(PickerIntentTransformer.isPhotoPickerIntent(original))
-        assertFalse(PickerIntentTransformer.isPhotoPickerIntent(converted))
+        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original))
+        assertFalse(PickerIntentTransformer.isRoutableVisualIntent(converted))
         assertTrue(converted.getBooleanExtra(PickerIntentTransformer.HANDLED_EXTRA, false))
+    }
+
+    @Test
+    fun routesChromeStyleImageGetContentToXiaomiGallery() {
+        val original = Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
+
+        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+
+        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original))
+        assertEquals(Intent.ACTION_PICK, converted.action)
+        assertEquals(PickerIntentTransformer.XIAOMI_GALLERY_COMPONENT, converted.component)
+        assertEquals("image/*", converted.type)
+        assertTrue(converted.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+    }
+
+    @Test
+    fun routesMixedVisualGetContentAndPreservesMultipleSelection() {
+        val mimeTypes = arrayOf("image/jpeg", "video/mp4")
+        val original = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+
+        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+
+        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original))
+        assertEquals("*/*", converted.type)
+        assertArrayEquals(mimeTypes, converted.getStringArrayExtra(Intent.EXTRA_MIME_TYPES))
+        assertTrue(converted.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false))
+    }
+
+    @Test
+    fun leavesGenericAndNonVisualGetContentUntouched() {
+        val requests = listOf(
+            Intent(Intent.ACTION_GET_CONTENT).setType("*/*"),
+            Intent(Intent.ACTION_GET_CONTENT).setType("application/pdf"),
+            Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/jpeg", "application/pdf"))
+            }
+        )
+
+        requests.forEach { request ->
+            assertFalse(PickerIntentTransformer.isRoutableVisualIntent(request))
+        }
     }
 
     @Test

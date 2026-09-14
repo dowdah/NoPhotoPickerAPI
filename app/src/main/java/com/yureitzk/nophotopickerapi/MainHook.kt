@@ -172,7 +172,7 @@ class MainHook : IXposedHookLoadPackage {
     }
 
     private fun isPhotoPickerIntent(intent: Intent): Boolean {
-        return PickerIntentTransformer.isPhotoPickerIntent(intent)
+        return PickerIntentTransformer.isRoutableVisualIntent(intent)
     }
 
     private fun findContext(param: XC_MethodHook.MethodHookParam): Context? {

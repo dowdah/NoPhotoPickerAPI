@@ -9,7 +9,7 @@ import android.os.Build
 import android.os.ext.SdkExtensions
 import android.provider.MediaStore
 
-/** Routes external Photo Picker requests to Xiaomi Gallery, with a safe file-picker fallback. */
+/** Routes external visual-media selection requests to Xiaomi Gallery, with a safe file-picker fallback. */
 internal object PickerIntentTransformer {
     const val HANDLED_EXTRA = "x_handled_by_nophoto"
     val XIAOMI_GALLERY_COMPONENT = ComponentName(
@@ -24,12 +24,38 @@ internal object PickerIntentTransformer {
         OPEN_DOCUMENT
     }
 
-    fun isPhotoPickerIntent(intent: Intent): Boolean {
+    fun isRoutableVisualIntent(intent: Intent): Boolean {
         if (intent.hasExtra(HANDLED_EXTRA)) return false
 
         return intent.action == MediaStore.ACTION_PICK_IMAGES ||
             (supportsPhotoPickerExtensions() &&
-                intent.action == ANDROIDX_PICK_VISUAL_MEDIA_ACTION)
+                intent.action == ANDROIDX_PICK_VISUAL_MEDIA_ACTION) ||
+            isVisualGetContentIntent(intent)
+    }
+
+    /**
+     * Web file inputs, including Chrome's image upload control, use GET_CONTENT instead of
+     * the platform Photo Picker action. Route only unambiguously visual requests: a generic
+     * wildcard file request must keep its original chooser.
+     */
+    private fun isVisualGetContentIntent(intent: Intent): Boolean {
+        if (intent.action != Intent.ACTION_GET_CONTENT) return false
+
+        val extraMimeTypes = getMimeTypesExtra(intent)
+        val requestedMimeTypes = extraMimeTypes ?: listOfNotNull(intent.type)
+        if (requestedMimeTypes.isEmpty()) return false
+
+        val primaryMimeType = intent.type
+        val primaryTypeIsCompatible = primaryMimeType == null ||
+            primaryMimeType == "*/*" ||
+            isVisualMimeType(primaryMimeType)
+        return primaryTypeIsCompatible &&
+            requestedMimeTypes.all(::isVisualMimeType)
+    }
+
+    private fun isVisualMimeType(mimeType: String): Boolean {
+        return mimeType.startsWith("image/", ignoreCase = true) ||
+            mimeType.startsWith("video/", ignoreCase = true)
     }
 
     fun toRoutedIntent(original: Intent, galleryAvailable: Boolean): Intent {
@@ -138,6 +164,16 @@ internal object PickerIntentTransformer {
             brand.equals("POCO", ignoreCase = true)
     }
 
+    private fun getMimeTypesExtra(intent: Intent): List<String>? {
+        val mimeTypes = intent.getStringArrayExtra(Intent.EXTRA_MIME_TYPES)
+            ?: intent.getStringArrayExtra("android.provider.extra.MIME_TYPES")
+            ?: intent.getStringArrayExtra(
+                "androidx.activity.result.contract.extra.PickVisualMedia.MimeType"
+            )
+            ?: return null
+        return mimeTypes.filter { it.isNotBlank() }
+    }
+
     private data class PickerRequest(
         val mimeTypes: Array<String>,
         val type: String,
@@ -145,12 +181,8 @@ internal object PickerIntentTransformer {
     ) {
         companion object {
             fun from(intent: Intent): PickerRequest {
-                val mimeTypes = intent.getStringArrayExtra(Intent.EXTRA_MIME_TYPES)
-                    ?: intent.getStringArrayExtra("android.provider.extra.MIME_TYPES")
-                    ?: intent.getStringArrayExtra(
-                        "androidx.activity.result.contract.extra.PickVisualMedia.MimeType"
-                    )
-                    ?: arrayOf(intent.type ?: "image/*")
+                val mimeTypes = getMimeTypesExtra(intent)
+                    ?: listOf(intent.type ?: "image/*")
                 val effectiveMimeTypes = mimeTypes.filter { it.isNotBlank() }
                     .ifEmpty { listOf(intent.type ?: "image/*") }
                     .toTypedArray()
