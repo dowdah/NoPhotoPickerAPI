@@ -1,10 +1,8 @@
 package com.yureitzk.nophotopickerapi
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
-import android.os.Build
-import android.os.ext.SdkExtensions
-import android.provider.MediaStore
 import android.util.Log
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
@@ -16,7 +14,6 @@ class MainHook : IXposedHookLoadPackage {
 
     companion object {
         private const val TAG = "NoPhotoPicker"
-        private const val FLAG = "x_handled_by_nophoto"
     }
 
     fun XC_LoadPackage.LoadPackageParam.isSystemFramework(): Boolean {
@@ -47,15 +44,29 @@ class MainHook : IXposedHookLoadPackage {
         for (className in serviceClasses) {
             val serviceClass = XposedHelpers.findClassIfExists(className, classLoader)
             if (serviceClass != null) {
-                XposedBridge.hookAllMethods(
-                    serviceClass,
-                    "startActivity",
-                    createIntentInterceptor("System:$className")
-                )
+                hookSystemActivityEntryPoints(serviceClass, className)
 
                 Log.d(TAG, "Hooked $className")
                 return
             }
+        }
+    }
+
+    private fun hookSystemActivityEntryPoints(serviceClass: Class<*>, className: String) {
+        val methodNames = listOf(
+            "startActivity",
+            "startActivityAsUser",
+            "startActivityAndWait",
+            "startActivityWithConfig",
+            "startActivityAsCaller"
+        )
+
+        for (methodName in methodNames) {
+            XposedBridge.hookAllMethods(
+                serviceClass,
+                methodName,
+                createIntentInterceptor("System:$className.$methodName")
+            )
         }
     }
 
@@ -67,14 +78,21 @@ class MainHook : IXposedHookLoadPackage {
                     if (args[i] is Intent) {
                         val intent = args[i] as Intent
                         if (isPhotoPickerIntent(intent)) {
-                            logIntentDetails(intent, source)
-                            val newIntent = buildDocumentPickerIntent(intent)
+                            val context = findContext(param)
+                            val galleryAvailable = PickerIntentTransformer.isXiaomiGalleryAvailable(context)
+                            val route = PickerIntentTransformer.routeFor(galleryAvailable)
+                            logIntentDetails(intent, source, route)
+                            val newIntent = PickerIntentTransformer.toRoutedIntent(
+                                intent,
+                                galleryAvailable
+                            )
                             args[i] = newIntent
 
                             if (i + 1 < args.size && (args[i + 1] == null || args[i + 1] is String)) {
                                 val newType = newIntent.type ?: "*/*"
                                 args[i + 1] = newType
-                                Log.d(TAG, "Updated resolvedType to $newType")                            }
+                                Log.d(TAG, "Updated resolvedType to $newType")
+                            }
                             return
                         }
                     }
@@ -153,68 +171,39 @@ class MainHook : IXposedHookLoadPackage {
         }
     }
 
-    private fun getMaxItems(intent: Intent): Int {
-        return if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ||
-            SdkExtensions.getExtensionVersion(Build.VERSION_CODES.R) >= 2
-        ) {
-            intent.getIntExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, -1)
-        } else {
-            -1
-        }
-    }
-
     private fun isPhotoPickerIntent(intent: Intent): Boolean {
-        if (intent.hasExtra(FLAG)) return false
-        return when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
-                intent.action == MediaStore.ACTION_PICK_IMAGES
-            SdkExtensions.getExtensionVersion(Build.VERSION_CODES.R) >= 2 ->
-                intent.action == MediaStore.ACTION_PICK_IMAGES ||
-                        intent.action == "androidx.activity.result.contract.action.PickVisualMedia"
+        return PickerIntentTransformer.isPhotoPickerIntent(intent)
+    }
 
-            else -> false
+    private fun findContext(param: XC_MethodHook.MethodHookParam): Context? {
+        (param.thisObject as? Context)?.let { return it }
+        param.args?.filterIsInstance<Context>()?.firstOrNull()?.let { return it }
+
+        getContextField(param.thisObject)?.let { return it }
+        val service = getObjectFieldOrNull(param.thisObject, "mService")
+        return getContextField(service)
+    }
+
+    private fun getContextField(instance: Any?): Context? {
+        return getObjectFieldOrNull(instance, "mContext") as? Context
+    }
+
+    private fun getObjectFieldOrNull(instance: Any?, fieldName: String): Any? {
+        if (instance == null) return null
+        return try {
+            XposedHelpers.getObjectField(instance, fieldName)
+        } catch (_: Throwable) {
+            null
         }
     }
 
-    private fun logIntentDetails(intent: Intent, source: String) {
+    private fun logIntentDetails(
+        intent: Intent,
+        source: String,
+        route: PickerIntentTransformer.Route
+    ) {
         Log.d(TAG, "[$source] Photo picker detected")
-        Log.d(TAG, "  Action: ${intent.action}")
-    }
-
-    private fun buildDocumentPickerIntent(original: Intent): Intent {
-        return Intent(Intent.ACTION_GET_CONTENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-
-            // Handle MIME types
-            val mimeTypes = original.getStringArrayExtra(Intent.EXTRA_MIME_TYPES)
-                ?: original.getStringArrayExtra("android.provider.extra.MIME_TYPES")
-                ?: original.getStringArrayExtra("androidx.activity.result.contract.extra.PickVisualMedia.MimeType")
-                ?: arrayOf(original.type ?: "image/*")
-
-            type = if (mimeTypes.size == 1) mimeTypes[0] else "*/*"
-            if (mimeTypes.size > 1 || mimeTypes[0] != type) {
-                putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
-            }
-
-            // Handle multi-select with API compatibility
-            val allowMultiple = original.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false)
-            val maxItems = getMaxItems(original)
-
-            val shouldAllowMultiple = when {
-                allowMultiple -> true
-                maxItems > 1 -> true
-                else -> false
-            }
-
-            if (shouldAllowMultiple) {
-                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                Log.d(TAG, "Multi-select enabled")
-            }
-
-            putExtra(FLAG, true)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            Log.d(TAG, "Created document picker intent")
-        }
+        Log.d(TAG, "  ${PickerIntentTransformer.describeForLog(intent)}")
+        Log.d(TAG, "  route=$route")
     }
 }
