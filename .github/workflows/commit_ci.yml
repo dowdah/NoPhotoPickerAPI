@@ -67,7 +67,7 @@ jobs:
       - name: Get version info
         id: version
         run: |
-          VERSION=$(grep "versionName" app/build.gradle.kts | awk '{print $3}' | tr -d '"')
+          VERSION=$(awk -F'"' '/^[[:space:]]*versionName[[:space:]]*=/ { print $2; exit }' app/build.gradle)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
         
