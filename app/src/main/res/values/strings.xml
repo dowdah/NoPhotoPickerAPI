@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">NoPhotoPickerAPI</string>
-    <string name="app_description">Routes Android Photo Picker requests to Xiaomi Gallery, with a file-picker fallback</string>
+    <string name="app_description">Bypasses Android Photo Picker; Android 16 / HyperOS 3 routes it to Xiaomi Gallery</string>
 </resources>

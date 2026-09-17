@@ -3,7 +3,6 @@ package com.yureitzk.nophotopickerapi
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ext.SdkExtensions
@@ -18,19 +17,41 @@ internal object PickerIntentTransformer {
     )
     private const val ANDROIDX_PICK_VISUAL_MEDIA_ACTION =
         "androidx.activity.result.contract.action.PickVisualMedia"
+    private const val PLATFORM_PICK_IMAGES_ACTION = "android.provider.action.PICK_IMAGES"
 
     enum class Route {
         XIAOMI_GALLERY,
-        OPEN_DOCUMENT
+        OPEN_DOCUMENT,
+        LEGACY_GET_CONTENT
+    }
+
+    enum class RoutingMode {
+        LEGACY,
+        ANDROID_16_HYPEROS_3
     }
 
     fun isRoutableVisualIntent(intent: Intent): Boolean {
+        return isRoutableVisualIntent(
+            intent = intent,
+            routingMode = AndroidVersionPolicy.routingModeForSystem(),
+            photoPickerAvailable = supportsPhotoPickerExtensions()
+        )
+    }
+
+    internal fun isRoutableVisualIntent(
+        intent: Intent,
+        routingMode: RoutingMode,
+        photoPickerAvailable: Boolean
+    ): Boolean {
         if (intent.hasExtra(HANDLED_EXTRA)) return false
 
-        return intent.action == MediaStore.ACTION_PICK_IMAGES ||
-            (supportsPhotoPickerExtensions() &&
-                intent.action == ANDROIDX_PICK_VISUAL_MEDIA_ACTION) ||
-            isVisualGetContentIntent(intent)
+        if (photoPickerAvailable && isPhotoPickerIntent(intent)) return true
+        return routingMode == RoutingMode.ANDROID_16_HYPEROS_3 && isVisualGetContentIntent(intent)
+    }
+
+    private fun isPhotoPickerIntent(intent: Intent): Boolean {
+        return intent.action == PLATFORM_PICK_IMAGES_ACTION ||
+            intent.action == ANDROIDX_PICK_VISUAL_MEDIA_ACTION
     }
 
     /**
@@ -59,18 +80,32 @@ internal object PickerIntentTransformer {
     }
 
     fun toRoutedIntent(original: Intent, galleryAvailable: Boolean): Intent {
+        return toRoutedIntent(original, galleryAvailable, AndroidVersionPolicy.routingModeForSystem())
+    }
+
+    internal fun toRoutedIntent(
+        original: Intent,
+        galleryAvailable: Boolean,
+        routingMode: RoutingMode
+    ): Intent {
         val request = PickerRequest.from(original)
-        return if (galleryAvailable) {
-            toGalleryIntent(request)
-        } else {
-            toDocumentIntent(request)
+        return when {
+            routingMode == RoutingMode.LEGACY -> toLegacyGetContentIntent(request)
+            galleryAvailable -> toGalleryIntent(request)
+            else -> toDocumentIntent(request)
         }
     }
 
-    fun routeFor(galleryAvailable: Boolean): Route = if (galleryAvailable) {
-        Route.XIAOMI_GALLERY
-    } else {
-        Route.OPEN_DOCUMENT
+    fun routeFor(galleryAvailable: Boolean): Route {
+        return routeFor(galleryAvailable, AndroidVersionPolicy.routingModeForSystem())
+    }
+
+    internal fun routeFor(galleryAvailable: Boolean, routingMode: RoutingMode): Route {
+        return when {
+            routingMode == RoutingMode.LEGACY -> Route.LEGACY_GET_CONTENT
+            galleryAvailable -> Route.XIAOMI_GALLERY
+            else -> Route.OPEN_DOCUMENT
+        }
     }
 
     fun isXiaomiGalleryAvailable(context: Context?): Boolean {
@@ -103,14 +138,23 @@ internal object PickerIntentTransformer {
         }
     }
 
-    private fun toDocumentIntent(request: PickerRequest): Intent {
+    private fun toLegacyGetContentIntent(request: PickerRequest): Intent {
+        return Intent(Intent.ACTION_GET_CONTENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = request.type
+            addMimeTypes(this, request)
+            addMultipleSelection(this, request)
+            putExtra(HANDLED_EXTRA, true)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
 
+    private fun toDocumentIntent(request: PickerRequest): Intent {
         return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = request.type
             addMimeTypes(this, request)
             addMultipleSelection(this, request)
-
             putExtra(HANDLED_EXTRA, true)
             addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or

@@ -53,15 +53,7 @@ class MainHook : IXposedHookLoadPackage {
     }
 
     private fun hookSystemActivityEntryPoints(serviceClass: Class<*>, className: String) {
-        val methodNames = listOf(
-            "startActivity",
-            "startActivityAsUser",
-            "startActivityAndWait",
-            "startActivityWithConfig",
-            "startActivityAsCaller"
-        )
-
-        for (methodName in methodNames) {
+        for (methodName in AndroidVersionPolicy.systemActivityMethodNames()) {
             XposedBridge.hookAllMethods(
                 serviceClass,
                 methodName,
@@ -77,14 +69,16 @@ class MainHook : IXposedHookLoadPackage {
                 for (i in args.indices) {
                     if (args[i] is Intent) {
                         val intent = args[i] as Intent
-                        if (isPhotoPickerIntent(intent)) {
-                            val context = findContext(param)
-                            val galleryAvailable = PickerIntentTransformer.isXiaomiGalleryAvailable(context)
-                            val route = PickerIntentTransformer.routeFor(galleryAvailable)
+                        if (isRoutableIntent(intent)) {
+                            val routingMode = AndroidVersionPolicy.routingModeForSystem()
+                            val galleryAvailable = routingMode == PickerIntentTransformer.RoutingMode.ANDROID_16_HYPEROS_3 &&
+                                PickerIntentTransformer.isXiaomiGalleryAvailable(findContext(param))
+                            val route = PickerIntentTransformer.routeFor(galleryAvailable, routingMode)
                             logIntentDetails(intent, source, route)
                             val newIntent = PickerIntentTransformer.toRoutedIntent(
                                 intent,
-                                galleryAvailable
+                                galleryAvailable,
+                                routingMode
                             )
                             args[i] = newIntent
 
@@ -171,7 +165,7 @@ class MainHook : IXposedHookLoadPackage {
         }
     }
 
-    private fun isPhotoPickerIntent(intent: Intent): Boolean {
+    private fun isRoutableIntent(intent: Intent): Boolean {
         return PickerIntentTransformer.isRoutableVisualIntent(intent)
     }
 

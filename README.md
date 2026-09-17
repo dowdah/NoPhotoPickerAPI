@@ -1,52 +1,47 @@
 # NoPhotoPickerAPI
 
-[![GitHub license](https://img.shields.io/github/license/dowdah/NoPhotoPickerAPI)](https://github.com/dowdah/NoPhotoPickerAPI/blob/main/LICENSE)
+[![GitHub license](https://img.shields.io/github/license/yureitzk/NoPhotoPickerAPI)](https://github.com/yureitzk/NoPhotoPickerAPI/blob/main/LICENSE)
 
-An Xposed/LSPosed module that intercepts external Android
-[Photo Picker](https://developer.android.com/training/data-storage/shared/photo-picker)
-requests. On Xiaomi-family devices it routes them to Xiaomi Gallery's normal
-picker (`com.miui.gallery/.picker.PickGalleryActivity`) instead of HyperOS's
-privacy picker. When Xiaomi Gallery cannot be selected on a non-Xiaomi route,
-the module falls back to the standard `OPEN_DOCUMENT` file picker.
+This is an Xposed module. The function of this module is to "bypass" the
+limitations of the new
+[Photo picker API](https://developer.android.com/training/data-storage/shared/photo-picker)
+and allow users to the classic document/file picker.
 
 > [!IMPORTANT]
-> Tested on Xiaomi 13 (nuwa), Android 16 / API 36, HyperOS 3.0.309.0 with
-> KernelSU Zygisk and LSPosed. Other devices and ROM builds may behave differently.
+> Tested on a limited number of devices. Your experience may vary, and bugs are possible.
+> Android 16 / HyperOS 3 routing was verified on Xiaomi 13 (nuwa),
+> HyperOS OS3.0.309.0 with KernelSU Zygisk and LSPosed.
+
+## Screenshots
+
+<details>
+<summary>View Screenshots</summary>
+
+### Without the module
+<img src='img/before.png' alt='Before' width='300'>
+
+### With the module
+<img src='img/after.png' alt='After' width='300'>
+
+</details>
 
 ## Supported OSes
 
-- Android 11-16 (API 30-36)
-- Xiaomi HyperOS 3 on Android 16 is supported and verified on the device above.
-- Other ROMs retain the file-picker fallback where the target Gallery component is not used.
-
-## What is intercepted
-
-- External `ACTION_PICK_IMAGES` requests, the Jetpack visual-media compatibility action, and
-  visual-only `ACTION_GET_CONTENT` requests (including Chrome web image uploads).
-- Image, video, mixed MIME, and multi-select requests are preserved when routed.
-- Generic `GET_CONTENT` requests without an explicit visual MIME list (including bare `*/*`),
-  non-visual files such as PDFs, permission prompts, app-owned gallery UIs, and Android 16
-  embedded Photo Picker sessions are deliberately not intercepted.
+- Android 11-15 (Custom ROMs are **not** supported)
+- Android 16 / HyperOS 3 routes external Photo Picker requests to Xiaomi Gallery.
 
 ## Usage
 
-1. Install version 0.5 or later and enable the module in LSPosed.
-2. Select **System Framework** (`android`). This is the default and covers apps
-   that use the external Photo Picker API.
-3. Reboot the device.
-4. Keep Xiaomi Gallery enabled. If the module APK is updated, verify the
-   LSPosed scope again before rebooting because some setups reset module state
-   after an APK replacement.
-
-For a limited, per-app rollout, select that app instead of `android`. The
-system-framework scope is required for broad coverage.
+1. Enable the module
+2. Select:
+   - System Framework **(recommended)**
+   - Or specific apps (per-app)
+3. Reboot (only if System Framework was selected)
 
 ## Important notes
 
-- Xiaomi-family routing requires the Xiaomi Gallery picker component to remain
-  present and enabled.
-- The module changes the picker UI, but still grants the caller read access only
-  to media selected by the user.
-- This is not a replacement for embedded Photo Picker integrations or an app's
-  own media UI.
+- This module bypasses Android's Photo Picker privacy model.
+- Apps may gain broader access to media files than intended by the system.
+- Android 16 / HyperOS 3 routes external Photo Picker requests to Xiaomi Gallery; all other
+  systems retain the upstream file-picker behavior.
 - Use at your own risk.

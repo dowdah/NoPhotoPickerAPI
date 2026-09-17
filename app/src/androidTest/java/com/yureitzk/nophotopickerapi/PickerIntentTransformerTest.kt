@@ -13,11 +13,18 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PickerIntentTransformerTest {
+    private val legacyMode = PickerIntentTransformer.RoutingMode.LEGACY
+    private val android16HyperOs3Mode = PickerIntentTransformer.RoutingMode.ANDROID_16_HYPEROS_3
+
     @Test
     fun routesSingleImageToXiaomiGalleryWithoutPersistableGrant() {
         val original = Intent(MediaStore.ACTION_PICK_IMAGES).setType("image/png")
 
-        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = true,
+            routingMode = android16HyperOs3Mode
+        )
 
         assertEquals(Intent.ACTION_PICK, converted.action)
         assertEquals(PickerIntentTransformer.XIAOMI_GALLERY_COMPONENT, converted.component)
@@ -35,7 +42,11 @@ class PickerIntentTransformerTest {
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
 
-        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = true,
+            routingMode = android16HyperOs3Mode
+        )
 
         assertEquals(Intent.ACTION_PICK, converted.action)
         assertEquals(PickerIntentTransformer.XIAOMI_GALLERY_COMPONENT, converted.component)
@@ -50,7 +61,11 @@ class PickerIntentTransformerTest {
             putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, 2)
         }
 
-        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = true,
+            routingMode = android16HyperOs3Mode
+        )
 
         assertTrue(converted.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false))
     }
@@ -59,9 +74,16 @@ class PickerIntentTransformerTest {
     fun fallsBackToOpenDocumentWhenGalleryIsUnavailable() {
         val original = Intent(MediaStore.ACTION_PICK_IMAGES).setType("video/mp4")
 
-        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = false)
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = false,
+            routingMode = android16HyperOs3Mode
+        )
 
-        assertEquals(PickerIntentTransformer.Route.OPEN_DOCUMENT, PickerIntentTransformer.routeFor(false))
+        assertEquals(
+            PickerIntentTransformer.Route.OPEN_DOCUMENT,
+            PickerIntentTransformer.routeFor(false, android16HyperOs3Mode)
+        )
         assertEquals(Intent.ACTION_OPEN_DOCUMENT, converted.action)
         assertTrue(converted.hasCategory(Intent.CATEGORY_OPENABLE))
         assertEquals("video/mp4", converted.type)
@@ -73,10 +95,14 @@ class PickerIntentTransformerTest {
     @Test
     fun recognizesExternalPickerButNeverReprocessesConvertedIntent() {
         val original = Intent(MediaStore.ACTION_PICK_IMAGES)
-        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = true,
+            routingMode = android16HyperOs3Mode
+        )
 
-        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original))
-        assertFalse(PickerIntentTransformer.isRoutableVisualIntent(converted))
+        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original, android16HyperOs3Mode, true))
+        assertFalse(PickerIntentTransformer.isRoutableVisualIntent(converted, android16HyperOs3Mode, true))
         assertTrue(converted.getBooleanExtra(PickerIntentTransformer.HANDLED_EXTRA, false))
     }
 
@@ -84,9 +110,13 @@ class PickerIntentTransformerTest {
     fun routesChromeStyleImageGetContentToXiaomiGallery() {
         val original = Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
 
-        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = true,
+            routingMode = android16HyperOs3Mode
+        )
 
-        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original))
+        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original, android16HyperOs3Mode, true))
         assertEquals(Intent.ACTION_PICK, converted.action)
         assertEquals(PickerIntentTransformer.XIAOMI_GALLERY_COMPONENT, converted.component)
         assertEquals("image/*", converted.type)
@@ -102,9 +132,13 @@ class PickerIntentTransformerTest {
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
 
-        val converted = PickerIntentTransformer.toRoutedIntent(original, galleryAvailable = true)
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = true,
+            routingMode = android16HyperOs3Mode
+        )
 
-        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original))
+        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(original, android16HyperOs3Mode, true))
         assertEquals("*/*", converted.type)
         assertArrayEquals(mimeTypes, converted.getStringArrayExtra(Intent.EXTRA_MIME_TYPES))
         assertTrue(converted.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false))
@@ -122,8 +156,79 @@ class PickerIntentTransformerTest {
         )
 
         requests.forEach { request ->
-            assertFalse(PickerIntentTransformer.isRoutableVisualIntent(request))
+            assertFalse(PickerIntentTransformer.isRoutableVisualIntent(request, android16HyperOs3Mode, true))
         }
+    }
+
+    @Test
+    fun preservesLegacyGetContentFallbackAndIgnoresGalleryAvailability() {
+        val mimeTypes = arrayOf("image/jpeg", "video/mp4")
+        val original = Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+            putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+
+        val converted = PickerIntentTransformer.toRoutedIntent(
+            original,
+            galleryAvailable = true,
+            routingMode = legacyMode
+        )
+
+        assertEquals(
+            PickerIntentTransformer.Route.LEGACY_GET_CONTENT,
+            PickerIntentTransformer.routeFor(true, legacyMode)
+        )
+        assertEquals(Intent.ACTION_GET_CONTENT, converted.action)
+        assertTrue(converted.hasCategory(Intent.CATEGORY_OPENABLE))
+        assertEquals("*/*", converted.type)
+        assertArrayEquals(mimeTypes, converted.getStringArrayExtra(Intent.EXTRA_MIME_TYPES))
+        assertTrue(converted.getBooleanExtra(Intent.EXTRA_ALLOW_MULTIPLE, false))
+        assertTrue(converted.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        assertFalse(converted.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0)
+    }
+
+    @Test
+    fun preservesLegacyPhotoPickerAvailabilityAndDoesNotRouteVisualGetContent() {
+        val photoPicker = Intent(MediaStore.ACTION_PICK_IMAGES)
+        val visualGetContent = Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
+
+        assertTrue(PickerIntentTransformer.isRoutableVisualIntent(photoPicker, legacyMode, true))
+        assertFalse(PickerIntentTransformer.isRoutableVisualIntent(photoPicker, legacyMode, false))
+        assertFalse(PickerIntentTransformer.isRoutableVisualIntent(visualGetContent, legacyMode, true))
+    }
+
+    @Test
+    fun selectsAndroid16HyperOs3SystemActivityEntryPointsOnly() {
+        assertEquals(
+            listOf("startActivity"),
+            AndroidVersionPolicy.systemActivityMethodNames(AndroidVersionPolicy.ANDROID_16_API - 1, "OS3.0.1")
+        )
+        assertEquals(
+            listOf("startActivity"),
+            AndroidVersionPolicy.systemActivityMethodNames(AndroidVersionPolicy.ANDROID_16_API, "OS2.0.1")
+        )
+        assertEquals(
+            listOf("startActivity"),
+            AndroidVersionPolicy.systemActivityMethodNames(AndroidVersionPolicy.ANDROID_16_API + 1, "OS3.0.1")
+        )
+        assertEquals(
+            PickerIntentTransformer.RoutingMode.LEGACY,
+            AndroidVersionPolicy.routingModeForSystem(AndroidVersionPolicy.ANDROID_16_API, "V816")
+        )
+        assertEquals(
+            listOf(
+                "startActivity",
+                "startActivityAsUser",
+                "startActivityAndWait",
+                "startActivityWithConfig",
+                "startActivityAsCaller"
+            ),
+            AndroidVersionPolicy.systemActivityMethodNames(AndroidVersionPolicy.ANDROID_16_API, "OS3.0.309.0.WMBCNXM")
+        )
+        assertEquals(
+            PickerIntentTransformer.RoutingMode.ANDROID_16_HYPEROS_3,
+            AndroidVersionPolicy.routingModeForSystem(AndroidVersionPolicy.ANDROID_16_API, "OS3.0.309.0.WMBCNXM")
+        )
     }
 
     @Test
